@@ -554,7 +554,11 @@ class MANGOS_DLL_SPEC Map : public GridRefManager<NGridType>, public MaNGOS::Obj
         typedef std::list<std::pair<Corpse*, ObjectGuid>> CorpseRemoveList;
         CorpseRemoveList        _corpseToRemove;
 
+        MapMutexType            _bonesLock;
+        std::list<Corpse*>      _bones;
+
         void RemoveCorpses();
+        void RemoveOldBones();
 
     protected:
         MapEntry const* i_mapEntry;

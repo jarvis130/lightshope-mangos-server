@@ -297,26 +297,9 @@ void ObjectAccessor::RemoveOldCorpses()
         next = itr;
         ++next;
 
-        if (itr->first.IsCorpse())
-        {
-            Corpse* corpse = HashMapHolder<Corpse>::Find(itr->first);
-            if (corpse)
-            {
-                if (!corpse->IsExpired(now))
-                    continue;
-                RemoveObject(corpse);
-                Map *map = sMapMgr.FindMap(corpse->GetMapId(), corpse->GetInstanceId());
-                if (map)
-                    map->Remove(corpse, true);
-            }
-            i_player2corpse.erase(itr);
-        }
-        else
-        {
-            if (!itr->second->IsExpired(now))
-                continue;
-            ConvertCorpseForPlayer(itr->first);
-        }
+        if (!itr->second->IsExpired(now))
+            continue;
+        ConvertCorpseForPlayer(itr->first);
     }
 }
 

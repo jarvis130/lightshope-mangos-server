@@ -898,6 +898,9 @@ void Map::Update(uint32 t_diff)
     UpdatePlayers();
     uint32 playersUpdateTime2 = WorldTimer::getMSTimeDiffToNow(updateMapTime) - objectsUpdateTime - activeCellsUpdateTime - playersUpdateTime - sessionsUpdateTime - visibilityUpdateTime;
 
+    RemoveCorpses();
+    RemoveOldBones();
+
     updateMapTime = WorldTimer::getMSTimeDiffToNow(updateMapTime);
 
     uint32 additionnalWaitTime = 0;
@@ -1328,6 +1331,13 @@ void Map::UnloadAll(bool pForce)
 
         Remove<Transport>(transport, true);
     }
+
+    // Remove any bones left in the map
+    for (auto iter = _bones.begin(); iter != _bones.end(); ++iter)
+    {
+        delete *iter;
+    }
+    _bones.clear();
 }
 
 bool Map::CheckGridIntegrity(Creature* c, bool moved) const
@@ -3265,10 +3275,9 @@ void Map::RemoveCorpses()
         const ObjectGuid& player_guid = corpse->GetOwnerGuid();
         Player* owner = GetPlayer(player_guid);
 
+        bool mapSpawnsBones = IsBattleGround() ? sWorld.getConfig(CONFIG_BOOL_DEATH_BONES_BG) : sWorld.getConfig(CONFIG_BOOL_DEATH_BONES_WORLD);
         // Create the bones only if the map and the grid is loaded at the corpse's location
-        if (looterGuid ||
-            (IsBattleGround() ? sWorld.getConfig(CONFIG_BOOL_DEATH_BONES_BG) : sWorld.getConfig(CONFIG_BOOL_DEATH_BONES_WORLD)) &&
-             IsRemovalGrid(corpse->GetPositionX(), corpse->GetPositionY()))
+        if ((looterGuid || mapSpawnsBones) && !IsRemovalGrid(corpse->GetPositionX(), corpse->GetPositionY()))
         {
             // Create bones, don't change Corpse
             Corpse* bones = new Corpse;
@@ -3314,8 +3323,12 @@ void Map::RemoveCorpses()
 
             // add bones in grid store if grid loaded where corpse placed
             Add(bones);
-            sObjectAccessor.AddCorpse(bones);
-            sObjectAccessor.AddObject(bones);
+
+            // Only take the lock for a second
+            {
+                ACE_Guard<MapMutexType> guard(_bonesLock);
+                _bones.push_back(bones);
+            }
         }
 
         // Save player after corpse removal to prevent the player logging in
@@ -3328,5 +3341,25 @@ void Map::RemoveCorpses()
         delete corpse;
 
         iter = _corpseToRemove.erase(iter);
+    }
+}
+
+/**
+ * Cleanup any old bones
+ */
+void Map::RemoveOldBones()
+{
+    time_t now = time(nullptr);
+    ACE_Guard<MapMutexType> guard(_bonesLock);
+    for (auto iter = _bones.begin(); iter != _bones.end();)
+    {
+        Corpse* bones = *iter;
+        if (bones->IsExpired(now))
+        {
+            Remove(bones, true);
+            iter = _bones.erase(iter);
+        }
+        else
+            ++iter;
     }
 }
