@@ -3308,7 +3308,10 @@ void Map::RemoveCorpses()
                 if (corpse->GetUInt32Value(CORPSE_FIELD_ITEM + i))
                     bones->SetUInt32Value(CORPSE_FIELD_ITEM + i, 0);
             }
-            
+
+            // add bones in grid store if grid loaded where corpse placed
+            Add(bones);
+
             if (looterGuid)
             {
                 // Now we must make bones lootable, and send player loot
@@ -3320,9 +3323,6 @@ void Map::RemoveCorpses()
                     looter->SendLoot(bones->GetObjectGuid(), LOOT_INSIGNIA, owner);
                 }
             }
-
-            // add bones in grid store if grid loaded where corpse placed
-            Add(bones);
 
             // Only take the lock for a second
             {
