@@ -3238,3 +3238,95 @@ void Map::PrintInfos(ChatHandler& handler)
     handler.PSendSysMessage("%u scripts scheduled", m_scriptSchedule.size());
     handler.PSendSysMessage("Vis:%.1f Act:%.1f", m_VisibleDistance, m_GridActivationDistance);
 }
+
+/**
+ * Add a corpse to be removed, conditionally spawning bones in its place.
+ * May be called from other maps or threads
+ */
+void Map::AddCorpseToRemove(Corpse* corpse, ObjectGuid looter_guid)
+{
+    ACE_Guard<MapMutexType> guard(_corpseRemovalLock);
+    _corpseToRemove.emplace_back(corpse, looter_guid);
+}
+
+/**
+ * Remove any recovered corpses in the map.
+ */
+void Map::RemoveCorpses()
+{
+    ACE_Guard<MapMutexType> guard(_corpseRemovalLock);
+    for (auto iter = _corpseToRemove.begin(); iter != _corpseToRemove.end();)
+    {
+        auto corpse = iter->first;
+        auto& looterGuid = iter->second;
+
+        Remove(corpse, false);
+
+        const ObjectGuid& player_guid = corpse->GetOwnerGuid();
+        Player* owner = GetPlayer(player_guid);
+
+        // Create the bones only if the map and the grid is loaded at the corpse's location
+        if (looterGuid ||
+            (IsBattleGround() ? sWorld.getConfig(CONFIG_BOOL_DEATH_BONES_BG) : sWorld.getConfig(CONFIG_BOOL_DEATH_BONES_WORLD)) &&
+             IsRemovalGrid(corpse->GetPositionX(), corpse->GetPositionY()))
+        {
+            // Create bones, don't change Corpse
+            Corpse* bones = new Corpse;
+            bones->Create(corpse->GetGUIDLow());
+            if (owner)
+            {
+                bones->SetFactionTemplate(owner->getFactionTemplateEntry());
+                if (looterGuid)
+                {
+                    // Notify the client that the corpse is gone
+                    WorldPacket cdata(MSG_CORPSE_QUERY, 1);
+                    cdata << uint8(0);
+                    owner->GetSession()->SendPacket(&cdata);
+                }
+            }
+
+            for (int i = 3; i < CORPSE_END; ++i)                    // don't overwrite guid and object type
+                bones->SetUInt32Value(i, corpse->GetUInt32Value(i));
+
+            bones->SetGrid(corpse->GetGrid());
+            bones->Relocate(corpse->GetPositionX(), corpse->GetPositionY(), corpse->GetPositionZ(), corpse->GetOrientation());
+
+            bones->SetUInt32Value(CORPSE_FIELD_FLAGS, CORPSE_FLAG_UNK2 | CORPSE_FLAG_BONES);
+            bones->SetGuidValue(CORPSE_FIELD_OWNER, player_guid);
+
+            for (int i = 0; i < EQUIPMENT_SLOT_END; ++i)
+            {
+                if (corpse->GetUInt32Value(CORPSE_FIELD_ITEM + i))
+                    bones->SetUInt32Value(CORPSE_FIELD_ITEM + i, 0);
+            }
+            
+            if (looterGuid)
+            {
+                // Now we must make bones lootable, and send player loot
+                bones->SetFlag(CORPSE_FIELD_DYNAMIC_FLAGS, CORPSE_DYNFLAG_LOOTABLE);
+
+                if (Player* looter = GetPlayer(looterGuid))
+                {
+                    bones->lootRecipient = looter;
+                    looter->SendLoot(bones->GetObjectGuid(), LOOT_INSIGNIA, owner);
+                }
+            }
+
+            // add bones in grid store if grid loaded where corpse placed
+            Add(bones);
+            sObjectAccessor.AddCorpse(bones);
+            sObjectAccessor.AddObject(bones);
+        }
+
+        // Save player after corpse removal to prevent the player logging in
+        // with no corpse but as a ghost, unless we are logging out in which
+        // case a save is already scheduled
+        if (owner && !IsBattleGround() && !owner->GetSession()->PlayerLogoutWithSave())
+            owner->SaveToDB();
+
+        corpse->DeleteFromDB();
+        delete corpse;
+
+        iter = _corpseToRemove.erase(iter);
+    }
+}
