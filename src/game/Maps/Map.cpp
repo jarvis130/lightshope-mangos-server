@@ -99,7 +99,7 @@ Map::Map(uint32 id, time_t expiry, uint32 InstanceId)
       _lastPlayersUpdate(WorldTimer::getMSTime()), _lastMapUpdate(WorldTimer::getMSTime()),
       _lastCellsUpdate(WorldTimer::getMSTime()), _inactivePlayersSkippedUpdates(0),
       _objUpdatesThreads(0), _unitRelocationThreads(0), _lastPlayerLeftTime(0),
-      m_lastMvtSpellsUpdate(0)
+      m_lastMvtSpellsUpdate(0), _bonesCleanupTimer(0)
 {
     m_CreatureGuids.Set(sObjectMgr.GetFirstTemporaryCreatureLowGuid());
     m_GameObjectGuids.Set(sObjectMgr.GetFirstTemporaryGameObjectLowGuid());
@@ -899,7 +899,7 @@ void Map::Update(uint32 t_diff)
     uint32 playersUpdateTime2 = WorldTimer::getMSTimeDiffToNow(updateMapTime) - objectsUpdateTime - activeCellsUpdateTime - playersUpdateTime - sessionsUpdateTime - visibilityUpdateTime;
 
     RemoveCorpses();
-    RemoveOldBones();
+    RemoveOldBones(t_diff);
 
     updateMapTime = WorldTimer::getMSTimeDiffToNow(updateMapTime);
 
@@ -3345,10 +3345,17 @@ void Map::RemoveCorpses()
 }
 
 /**
- * Cleanup any old bones
+ * Cleanup any old bones. We don't need to check every update, instead let
+ * it be configurable
  */
-void Map::RemoveOldBones()
+void Map::RemoveOldBones(const uint32 diff)
 {
+    _bonesCleanupTimer += diff;
+    if (_bonesCleanupTimer < sWorld.GetWorldUpdateTimerInterval(WUPDATE_CORPSES))
+        return;
+
+    _bonesCleanupTimer = 0u;
+
     time_t now = time(nullptr);
     ACE_Guard<MapMutexType> guard(_bonesLock);
     for (auto iter = _bones.begin(); iter != _bones.end();)
