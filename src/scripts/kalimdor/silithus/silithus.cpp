@@ -3047,6 +3047,7 @@ struct npc_Krug_SkullSplitAI : public ScriptedAI
                                       TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 450000, true);
             if (pHunterKiller)
             {
+                pHunterKiller->SetRespawnDelay(460);
                 eEventStatus = EVENT_STARTED;
                 m_bAlreadyMoved = false;
                 m_uiHunterKillerGUID = pHunterKiller->GetObjectGuid();
@@ -3066,9 +3067,6 @@ struct npc_Krug_SkullSplitAI : public ScriptedAI
         m_bGruntSpeech = true;
 
         m_creature->SetFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_QUESTGIVER);
-
-        if (Creature* pHunter = m_creature->GetMap()->GetCreature(m_uiHunterKillerGUID))
-            pHunter->AddObjectToRemoveList();
     }
 
     void InitOtherNPCsGuids()
