@@ -406,7 +406,7 @@ struct ossirian_crystalAI : public GameObjectAI
             return false;
         }
 
-        Creature* ossirian = GetClosestCreatureWithEntry(me, NPC_OSSIRIAN, 50.0f);
+        Creature* ossirian = GetClosestCreatureWithEntry(me, NPC_OSSIRIAN, 100.0f);
 
         if (!ossirian)
         {
@@ -419,16 +419,16 @@ struct ossirian_crystalAI : public GameObjectAI
             return true;
 
         // Already used
-        if (me->FindNearCreature(CRYSTAL_TRIGGER, 10.0f))
+        if (Creature* trigger = GetClosestCreatureWithEntry(me, CRYSTAL_TRIGGER, 5.0f))
             return true;
 
         Creature* triggerCrystalPylons = me->SummonCreature(CRYSTAL_TRIGGER,
-                                         me->GetPositionX(),
-                                         me->GetPositionY(),
-                                         me->GetPositionZ(),
-                                         me->GetOrientation(),
-                                         TEMPSUMMON_TIMED_DESPAWN,
-                                        8000);
+                                            me->GetPositionX(),
+                                            me->GetPositionY(),
+                                            me->GetPositionZ(),
+                                            me->GetOrientation(),
+                                            TEMPSUMMON_TIMED_DESPAWN,
+                                            8000);
 
         if (triggerCrystalPylons)
         {
