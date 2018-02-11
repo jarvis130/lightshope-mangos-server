@@ -70,7 +70,7 @@ const std::array<SpawnLocations, 2> TornadoSpawn =
 
 const std::array<SpawnLocations, 11> CrystalSpawn =
 {{
-    { -9407.164062f, 1959.240845f, 85.558998f },
+    { -9407.164062f, 1959.240845f, 85.558998f }, // central spawn, unused since it was a nerfed mechanic added in 1.11
     { -9357.931641f, 1930.596802f, 85.556198f },
     { -9383.113281f, 2011.042725f, 85.556389f },
     { -9243.36f, 1979.04f, 85.556f },
@@ -82,6 +82,9 @@ const std::array<SpawnLocations, 11> CrystalSpawn =
     { -9187.087891f, 1940.501099f, 85.5564f },
     { -9406.73f, 1863.13f, 85.5558f }
 }};
+
+// Maximum distance between the used crystal and new crystals
+#define OSSIRIAN_CRYSTAL_MAX_DIST 80.0f
 
 struct boss_ossirianAI : public ScriptedAI
 {
@@ -103,7 +106,9 @@ struct boss_ossirianAI : public ScriptedAI
     std::vector<float> TmpThreatVal;
     std::vector<uint64> TornadoGUIDs;
 
+    std::unordered_map<ObjectGuid, uint32> crystalIndexes;
     std::list<ObjectGuid> crystalGuids;
+    std::list<uint32> pylonIndexHistory;
     bool m_bIsEnraged;
     bool m_bAggro;
 
@@ -146,16 +151,17 @@ struct boss_ossirianAI : public ScriptedAI
         if (wth)
             wth->SetWeather(WeatherType(0), 0);
 
-        while (!crystalGuids.empty())
+        for (auto iter = crystalGuids.cbegin(); iter != crystalGuids.cend(); ++iter)
         {
-            ObjectGuid guid = crystalGuids.front();
-            crystalGuids.pop_front();
-            if (GameObject* invoc = m_creature->GetMap()->GetGameObject(guid))
+            if (GameObject* invoc = m_creature->GetMap()->GetGameObject(*iter))
                 invoc->AddObjectToRemoveList();
         }
-        crystalGuids.clear();
 
-        SpawnCrystal(0);
+        crystalGuids.clear();
+        crystalIndexes.clear();
+
+        // Initial central spawn added in Patch 1.11
+        //SpawnCrystal(0);
     }
 
     void SpellHitTarget(Unit* pCaster, const SpellEntry* pSpell)
@@ -214,7 +220,7 @@ struct boss_ossirianAI : public ScriptedAI
         {
             m_bAggro = true;
             m_uiSpeed_Timer = 10000;
-            SpawnCrystal(urand(1, 10));
+            SpawnNewCrystals(ObjectGuid());
         }
 
         uint32 zoneid = m_creature->GetZoneId();
@@ -222,21 +228,80 @@ struct boss_ossirianAI : public ScriptedAI
             wth->SetWeather(WeatherType(3), 2);
     }
 
-    void SpawnCrystal(uint32 pylonIdx)
+    void SpawnNewCrystals(ObjectGuid used)
     {
-        GameObject* pCrystal = m_creature->SummonGameObject(GO_OSSIRIAN_CRYSTAL,
-                               CrystalSpawn[pylonIdx].x,
-                               CrystalSpawn[pylonIdx].y,
-                               CrystalSpawn[pylonIdx].z,
-                               0, 0, 0, 0, 0, -1, false);
+        /**
+         * The spawn logic is as follows (approximated as much as possible from
+         * multiple videos):
+         * https://www.youtube.com/watch?v=Y2ITGk5_8hc
+         * https://www.youtube.com/watch?v=fyivFwDIAtI
+         * https://www.youtube.com/watch?v=qb0zZ3xkKLk
+         * https://www.youtube.com/watch?v=Mlh8lSaBqPk
+         * https://www.youtube.com/watch?v=Je2USKK2qhs
+         * 1. From the last crystal used, find a crystal location within 80 yards.
+         * 2. Spawn two crystals. One at, and one near to, this location
+         * There are some rules regarding how many crystals should be spawned and
+         * where.
+         * 1. Only 2 crystals should be spawned at once
+         * 2. We should not spawn the same crystal as the one used
+         */
 
-        if (!pCrystal)
+        uint32 used = 0;
+        auto previous = crystalIndexes.find(used);
+        if (previous != crystalIndexes.end())
         {
-            sLog.outError("[OSSIRIAN] Unable to spawn crystal %u at position #%u", GO_OSSIRIAN_CRYSTAL, pylonIdx);
-            return;
+            used = previous->second;
+            crystalIndexes.erase(previous);
         }
 
-        crystalGuids.push_back(pCrystal->GetObjectGuid());
+        SpawnLocations previousLoc = CrystalSpawn.at(used);
+        // limit the number of attempts so we don't deadlock if no suitable spawn within
+        // distance
+        uint32 attempts = 0;
+        float distanceLimit = OSSIRIAN_CRYSTAL_MAX_DIST;
+
+        // We already have another crystal spawned. Use that as the hint, but don't put it
+        // too close
+        if (crystalIndexes.size() > 0)
+        {
+            distanceLimit *= 0.75f;
+            previousLoc = CrystalSpawn.at(crystalIndexes.begin()->second);
+        }
+
+        while (crystalIndexes.size() < 2)
+        {
+            ++attempts;
+            uint32 newIndex = urand(1, CrystalSpawn.size() - 1);
+            if (newIndex == used && attempts < 5)
+                continue;
+
+            const SpawnLocations& newLoc = CrystalSpawn.at(newIndex);
+
+            float dist = sqrt(pow(newLoc.x - previousLoc.x, 2) + pow(newLoc.y - previousLoc.y, 2));
+
+            if (dist > distanceLimit && attempts < 5)
+                continue;
+
+            GameObject* pCrystal = m_creature->SummonGameObject(GO_OSSIRIAN_CRYSTAL,
+                newLoc.x,
+                newLoc.y,
+                newLoc.z,
+                0, 0, 0, 0, 0, -1, false);
+
+            if (!pCrystal)
+            {
+                sLog.outError("[OSSIRIAN] Unable to spawn crystal %u at position #%u", GO_OSSIRIAN_CRYSTAL, newIndex);
+                return;
+            }
+
+            // Use the new location as a hint and reduce the limit so the next one
+            // spawns close as well
+            distanceLimit *= 0.25f;
+            previousLoc = newLoc;
+
+            crystalGuids.push_back(pCrystal->GetObjectGuid());
+            crystalIndexes[pCrystal->GetObjectGuid()] = newIndex;
+        }
     }
 
     void JustDied(Unit* pKiller)
@@ -258,14 +323,6 @@ struct boss_ossirianAI : public ScriptedAI
     {
         if (pVictim->GetTypeId() == TYPEID_PLAYER)
             DoScriptText(SAY_SLAY, m_creature);
-    }
-
-    void DoAction(const uint32 action)
-    {
-        // First crystal spawn is reserved for the start of the encounter
-        // just below the ramp
-        if (action == 0xBEEF)
-            SpawnCrystal(urand(1, CrystalSpawn.size()-1));
     }
 
     void UpdateAI(const uint32 uiDiff)
@@ -431,10 +488,11 @@ struct ossirian_crystalAI : public GameObjectAI
                                             8000);
 
         if (triggerCrystalPylons)
-        {
             triggerCrystalPylons->CastSpell(ossirian, SpellWeakness[urand(0, 4)], true);
-            ossirian->AI()->DoAction(0xBEEF);
-        }
+
+        if (boss_ossirianAI* ossirianAI = dynamic_cast<boss_ossirianAI*>(ossirian->AI()))
+            ossirianAI->SpawnNewCrystals(me->GetObjectGuid());
+
         return false;
     }
 };
