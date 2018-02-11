@@ -228,24 +228,23 @@ struct boss_ossirianAI : public ScriptedAI
             wth->SetWeather(WeatherType(3), 2);
     }
 
+    /**
+    * The spawn logic is as follows (approximated as much as possible from
+    * multiple videos):
+    * https://www.youtube.com/watch?v=Y2ITGk5_8hc
+    * https://www.youtube.com/watch?v=fyivFwDIAtI
+    * https://www.youtube.com/watch?v=qb0zZ3xkKLk
+    * https://www.youtube.com/watch?v=Mlh8lSaBqPk
+    * https://www.youtube.com/watch?v=Je2USKK2qhs
+    * 1. From the last crystal used, find a crystal location within 80 yards.
+    * 2. Spawn two crystals. One at, and one near to, this location
+    * There are some rules regarding how many crystals should be spawned and
+    * where.
+    * 1. Only 2 crystals should be spawned at once
+    * 2. We should not spawn the same crystal as the one used
+    */
     void SpawnNewCrystals(ObjectGuid usedCrystal)
     {
-        /**
-         * The spawn logic is as follows (approximated as much as possible from
-         * multiple videos):
-         * https://www.youtube.com/watch?v=Y2ITGk5_8hc
-         * https://www.youtube.com/watch?v=fyivFwDIAtI
-         * https://www.youtube.com/watch?v=qb0zZ3xkKLk
-         * https://www.youtube.com/watch?v=Mlh8lSaBqPk
-         * https://www.youtube.com/watch?v=Je2USKK2qhs
-         * 1. From the last crystal used, find a crystal location within 80 yards.
-         * 2. Spawn two crystals. One at, and one near to, this location
-         * There are some rules regarding how many crystals should be spawned and
-         * where.
-         * 1. Only 2 crystals should be spawned at once
-         * 2. We should not spawn the same crystal as the one used
-         */
-
         uint32 used = 0;
         auto previous = crystalIndexes.find(usedCrystal);
         if (previous != crystalIndexes.end())
@@ -255,52 +254,69 @@ struct boss_ossirianAI : public ScriptedAI
         }
 
         SpawnLocations previousLoc = CrystalSpawn.at(used);
-        // limit the number of attempts so we don't deadlock if no suitable spawn within
-        // distance
+        // limit the number of attempts so we don't deadlock
         uint32 attempts = 0;
         float distanceLimit = OSSIRIAN_CRYSTAL_MAX_DIST;
 
-        // We already have another crystal spawned. Use that as the hint, but don't put it
-        // too close
+        // We already have another crystal spawned. Use that as the hint
+        uint32 hintIndex = used;
         if (crystalIndexes.size() > 0)
         {
             distanceLimit *= 0.75f;
-            previousLoc = CrystalSpawn.at(crystalIndexes.begin()->second);
+            uint32 hint = crystalIndexes.begin()->second;
+            previousLoc = CrystalSpawn.at(hint);
+            hintIndex = hint;
         }
+
+        std::vector<uint32> possibleIndexes;
+        possibleIndexes.reserve(CrystalSpawn.size());
+        for (uint32 i = 0; i < CrystalSpawn.size(); ++i)
+        {
+            if (i == used || i == hintIndex)
+                continue;
+
+            possibleIndexes.push_back(i);
+        }
+
+        std::random_shuffle(possibleIndexes.begin(), possibleIndexes.end());
 
         while (crystalIndexes.size() < 2)
         {
-            ++attempts;
-            uint32 newIndex = urand(1, CrystalSpawn.size() - 1);
-            if (newIndex == used && attempts < 5)
-                continue;
-
-            const SpawnLocations& newLoc = CrystalSpawn.at(newIndex);
-
-            float dist = sqrt(pow(newLoc.x - previousLoc.x, 2) + pow(newLoc.y - previousLoc.y, 2));
-
-            if (dist > distanceLimit && attempts < 5)
-                continue;
-
-            GameObject* pCrystal = m_creature->SummonGameObject(GO_OSSIRIAN_CRYSTAL,
-                newLoc.x,
-                newLoc.y,
-                newLoc.z,
-                0, 0, 0, 0, 0, -1, false);
-
-            if (!pCrystal)
+            for (auto iter = possibleIndexes.begin(); iter != possibleIndexes.end() && crystalIndexes.size() < 2;)
             {
-                sLog.outError("[OSSIRIAN] Unable to spawn crystal %u at position #%u", GO_OSSIRIAN_CRYSTAL, newIndex);
-                return;
+                if (++attempts >= 5)
+                    distanceLimit *= 1.1f; // increase distance to search further each extra attempt
+
+                uint32 newIndex = *iter;
+                const SpawnLocations& newLoc = CrystalSpawn.at(newIndex);
+                float dist = sqrt(pow(newLoc.x - previousLoc.x, 2) + pow(newLoc.y - previousLoc.y, 2));
+                if (dist > distanceLimit)
+                {
+                    ++iter;
+                    continue;
+                }
+
+                GameObject* pCrystal = m_creature->SummonGameObject(GO_OSSIRIAN_CRYSTAL,
+                    newLoc.x,
+                    newLoc.y,
+                    newLoc.z,
+                    0, 0, 0, 0, 0, -1, false);
+
+                if (!pCrystal)
+                {
+                    sLog.outError("[OSSIRIAN] Unable to spawn crystal %u at position #%u", GO_OSSIRIAN_CRYSTAL, newIndex);
+                    return;
+                }
+
+                // Use the new location as a hint and reduce the limit so the next one
+                // spawns close as well
+                distanceLimit *= 0.50f;
+                previousLoc = newLoc;
+                iter = possibleIndexes.erase(iter); // remove selected index
+
+                crystalGuids.push_back(pCrystal->GetObjectGuid());
+                crystalIndexes[pCrystal->GetObjectGuid()] = newIndex;
             }
-
-            // Use the new location as a hint and reduce the limit so the next one
-            // spawns close as well
-            distanceLimit *= 0.25f;
-            previousLoc = newLoc;
-
-            crystalGuids.push_back(pCrystal->GetObjectGuid());
-            crystalIndexes[pCrystal->GetObjectGuid()] = newIndex;
         }
     }
 
