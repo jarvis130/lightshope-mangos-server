@@ -228,7 +228,7 @@ struct boss_ossirianAI : public ScriptedAI
             wth->SetWeather(WeatherType(3), 2);
     }
 
-    void SpawnNewCrystals(ObjectGuid used)
+    void SpawnNewCrystals(ObjectGuid usedCrystal)
     {
         /**
          * The spawn logic is as follows (approximated as much as possible from
@@ -247,7 +247,7 @@ struct boss_ossirianAI : public ScriptedAI
          */
 
         uint32 used = 0;
-        auto previous = crystalIndexes.find(used);
+        auto previous = crystalIndexes.find(usedCrystal);
         if (previous != crystalIndexes.end())
         {
             used = previous->second;
