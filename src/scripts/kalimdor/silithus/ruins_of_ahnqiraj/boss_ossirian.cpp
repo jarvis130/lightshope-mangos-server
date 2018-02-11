@@ -83,8 +83,8 @@ const std::array<SpawnLocations, 11> CrystalSpawn =
     { -9406.73f, 1863.13f, 85.5558f }
 }};
 
-// Maximum distance between the used crystal and new crystals
-#define OSSIRIAN_CRYSTAL_MAX_DIST 80.0f
+// Initial distance between the used crystal and new crystals before expanding the search
+#define OSSIRIAN_CRYSTAL_INITIAL_DIST 80.0f
 
 struct boss_ossirianAI : public ScriptedAI
 {
@@ -256,7 +256,7 @@ struct boss_ossirianAI : public ScriptedAI
         SpawnLocations previousLoc = CrystalSpawn.at(used);
         // limit the number of attempts so we don't deadlock
         uint32 attempts = 0;
-        float distanceLimit = OSSIRIAN_CRYSTAL_MAX_DIST;
+        float distanceLimit = OSSIRIAN_CRYSTAL_INITIAL_DIST;
 
         // We already have another crystal spawned. Use that as the hint
         uint32 hintIndex = used;
@@ -479,7 +479,7 @@ struct ossirian_crystalAI : public GameObjectAI
             return false;
         }
 
-        Creature* ossirian = GetClosestCreatureWithEntry(me, NPC_OSSIRIAN, 100.0f);
+        Creature* ossirian = GetClosestCreatureWithEntry(me, NPC_OSSIRIAN, 300.0f);
 
         if (!ossirian)
         {
