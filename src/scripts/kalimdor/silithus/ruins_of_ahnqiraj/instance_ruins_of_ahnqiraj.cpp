@@ -466,6 +466,7 @@ void instance_ruins_of_ahnqiraj::SetData(uint32 uiType, uint32 uiData)
 
                 crystalGuids.clear();
                 crystalIndexes.clear();
+                crystalIndexHistory.clear();
             }
         default:
             return;
@@ -638,6 +639,7 @@ void instance_ruins_of_ahnqiraj::ForceAndorovSquadDespawn(uint32 timeToDespawn)
 * where.
 * 1. Only 2 crystals should be spawned at once
 * 2. We should not spawn the same crystal as the one used
+* 3. We should maintain a short history of spawned locations to ensure some variety
 */
 void instance_ruins_of_ahnqiraj::SpawnNewCrystals(ObjectGuid usedCrystal)
 {
@@ -649,27 +651,34 @@ void instance_ruins_of_ahnqiraj::SpawnNewCrystals(ObjectGuid usedCrystal)
         crystalIndexes.erase(previous);
     }
 
+    // Truncate the history first
+    crystalIndexHistory.resize(2);
+
+    crystalIndexHistory.push_front(used);
+
     SpawnLocations previousLoc = CrystalSpawn.at(used);
     // Expand the search after a certain number of attempts otherwise
     // it may be impossible to spawn one within range and we deadlock
     uint32 attempts = 0;
-    float distanceLimit = OSSIRIAN_CRYSTAL_INITIAL_DIST;
+    float maxDistanceLimit = OSSIRIAN_CRYSTAL_INITIAL_DIST;
+    float minDistanceLimit = maxDistanceLimit / 2;
 
     // We already have another crystal spawned. Use that as the hint
-    uint32 hintIndex = used;
     if (crystalIndexes.size() > 0)
     {
-        distanceLimit *= 0.75f;
+        maxDistanceLimit *= 0.75f;
+        minDistanceLimit *= 0.75f;
         uint32 hint = crystalIndexes.begin()->second;
         previousLoc = CrystalSpawn.at(hint);
-        hintIndex = hint;
+        crystalIndexHistory.push_front(hint);
     }
 
     std::vector<uint32> possibleIndexes;
     possibleIndexes.reserve(CrystalSpawn.size());
     for (uint32 i = 0; i < CrystalSpawn.size(); ++i)
     {
-        if (i == used || i == hintIndex)
+        auto iter = std::find(crystalIndexHistory.cbegin(), crystalIndexHistory.cend(), i);
+        if (iter != crystalIndexHistory.end())
             continue;
 
         possibleIndexes.push_back(i);
@@ -682,12 +691,16 @@ void instance_ruins_of_ahnqiraj::SpawnNewCrystals(ObjectGuid usedCrystal)
         for (auto iter = possibleIndexes.begin(); iter != possibleIndexes.end() && crystalIndexes.size() < OSSIRIAN_CRYSTAL_NUM_ACTIVE;)
         {
             if (++attempts >= 5)
-                distanceLimit *= 1.1f; // increase distance to search further each extra attempt
+            {
+                // increase distance to search further each extra attempt
+                minDistanceLimit *= 0.9f;
+                maxDistanceLimit *= 1.1f;
+            }
 
             uint32 newIndex = *iter;
             const SpawnLocations& newLoc = CrystalSpawn.at(newIndex);
             float dist = sqrt(pow(newLoc.x - previousLoc.x, 2) + pow(newLoc.y - previousLoc.y, 2));
-            if (dist > distanceLimit)
+            if (dist > maxDistanceLimit || dist < minDistanceLimit)
             {
                 ++iter;
                 continue;
@@ -707,7 +720,8 @@ void instance_ruins_of_ahnqiraj::SpawnNewCrystals(ObjectGuid usedCrystal)
 
             // Use the new location as a hint and reduce the limit so the next one
             // spawns close as well
-            distanceLimit *= 0.50f;
+            maxDistanceLimit *= 0.50f;
+            minDistanceLimit *= 0.50f;
             previousLoc = newLoc;
             iter = possibleIndexes.erase(iter); // remove selected index
 

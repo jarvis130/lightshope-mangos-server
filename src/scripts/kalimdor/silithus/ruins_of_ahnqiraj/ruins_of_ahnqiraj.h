@@ -6,6 +6,7 @@
 #define DEF_RUINS_OF_AHNQIRAJ_H
 
 #include <array>
+#include <deque>
 
 //#define DEBUG_MODE
 
@@ -158,6 +159,7 @@ private:
     std::list<uint64> m_lOssirianPylons;
     std::unordered_map<ObjectGuid, uint32> crystalIndexes;
     std::list<ObjectGuid> crystalGuids;
+    std::deque<uint32> crystalIndexHistory;
 
     uint64 m_uiQeezGUID;
     uint64 m_uiTuubidGUID;
