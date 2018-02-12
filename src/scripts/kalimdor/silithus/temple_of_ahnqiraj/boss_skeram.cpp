@@ -94,6 +94,14 @@ struct boss_skeramAI : public ScriptedAI
         ImageA = nullptr;
         ImageA = nullptr;
         ControlledPlayerGUID.Clear();
+
+        // The raised ledges around Skeram's platforms are a pathing nightmare, there is no
+        // reasonable way to get onto them with our current implementation (imo Blizzard had
+        // an mmap system that let them add invisible ramps for creatures). However, we can
+        // obtain partial paths next to it. Normally, these are ignored, but we can set a
+        // flag to allow them. They may put us out of LoS so allow autos through them too.
+        m_creature->addUnitState(UNIT_STAT_ALLOW_INCOMPLETE_PATH | UNIT_STAT_ALLOW_LOS_ATTACK);
+        m_creature->SetMeleeZReach(74.0f);
     }
 
     void CancelFulfillment()
